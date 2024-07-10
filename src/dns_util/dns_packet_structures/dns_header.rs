@@ -1,15 +1,5 @@
 use std::fmt;
-
-use crate::dns_util::packet_factory::labels_to_domains;
-
-
-#[derive(Debug)]
-pub struct DNSPacket {
-    pub header: DNSHeader,
-    pub questions: Vec<DNSQuestion>,
-    pub answers: Vec<DNSAnswer>
-}
-
+use rand::Rng;
 pub struct DNSHeader {
     //// Unique ID of the transaction. Query and response should have the same.
     pub query_id: u16,
@@ -19,8 +9,8 @@ pub struct DNSHeader {
     /// --> [5]      Authoritative answer. Only for response. 1 if responding 
     ///              server is an authority for the domain, 0 otherwise
     /// --> [6]      Truncation. 1 if message truncated, 0 otherwise
-    /// --> [7]      Recursion desired. Should be set to 1 in query
-    /// --> [8]      Reursion available. For response
+    /// --> [7]      Recursion desired. Should be 1 in query
+    /// --> [8]      Reursion available. For response, should be 0 in query.
     /// --> [9-11]   Reserved. Set to 0
     /// --> [12-15]  Response code. Set to 0 in query. In response:
     ///                  0 = no error
@@ -38,6 +28,62 @@ pub struct DNSHeader {
     pub authority_count: u16,
     /// Number of records in the additionnal section. Set to 0x00 in query
     pub additional_count: u16,
+}
+
+impl DNSHeader {
+    pub fn create_query_header(questions_count: u16) -> Self {
+        let mut rng = rand::thread_rng();
+        Self {
+            query_id: rng.gen::<u16>(),
+            flags: 0b0000_0001_0000_0000,
+            questions_count: questions_count,
+            answers_count: 0,
+            authority_count: 0,
+            additional_count: 0,
+        }
+    }
+
+    pub fn parse_header_from_response(response: &Vec<u8>) -> Self {
+        Self {
+            query_id: u16::from_le_bytes([response[1], response[0]]),
+            flags: u16::from_le_bytes([response[3], response[2]]),
+            questions_count: u16::from_le_bytes([response[5], response[4]]),  
+            answers_count: u16::from_le_bytes([response[7], response[6]]),
+            authority_count: u16::from_le_bytes([response[9], response[8]]),
+            additional_count: u16::from_le_bytes([response[11], response[10]]),
+        }
+    }
+
+    pub fn prepare(&self) -> Vec<u8> {
+        let mut prepared_header: Vec<u8> = Vec::new();
+
+        prepared_header.extend([
+            self.query_id.to_le_bytes()[1],
+            self.query_id.to_le_bytes()[0]
+        ]);
+        prepared_header.extend([
+            self.flags.to_le_bytes()[1],
+            self.flags.to_le_bytes()[0]
+        ]);
+        prepared_header.extend([
+            self.questions_count.to_le_bytes()[1],
+            self.questions_count.to_le_bytes()[0]
+        ]);
+        prepared_header.extend([
+            self.answers_count.to_le_bytes()[1],
+            self.answers_count.to_le_bytes()[0]
+        ]);
+        prepared_header.extend([
+            self.authority_count.to_le_bytes()[1],
+            self.authority_count.to_le_bytes()[0]
+        ]);
+        prepared_header.extend([
+            self.additional_count.to_le_bytes()[1],
+            self.additional_count.to_le_bytes()[0]
+        ]);
+
+        prepared_header
+    }
 }
 
 impl fmt::Debug for DNSHeader {
@@ -95,87 +141,5 @@ impl fmt::Debug for DNSHeader {
             _ => ()
         };
         writeln!(f, "additional count: {}", self.additional_count)
-    }
-}
-pub struct DNSQuestion {
-    /// Set of labels preceeded by their length. Ends with \x00.
-    /// news.google.com will give \x04news\x06google\x03com\x00.
-    pub query_name: Vec<u8>,
-    /// Type of resource queried
-    /// --> 1 = A       - a host address
-    /// --> 2 = NS      - an authoritative name server
-    /// --> 3 = MD      - a mail destination (Obsolete - use MX)
-    /// --> 4 = MF      - a mail forwarder (Obsolete - use MX)
-    /// --> 5 = CNAME   - the canonical name for an alias
-    /// --> 6 = SOA     - marks the start of a zone of authority
-    /// --> 7 = MB      - a mailbox domain name (EXPERIMENTAL)
-    /// --> 8 = MG      - a mail group member (EXPERIMENTAL)
-    /// --> 9 = MR      - a mail rename domain name (EXPERIMENTAL)
-    /// --> 10 = NULL   - a null RR (EXPERIMENTAL)
-    /// --> 11 = WKS    - a well known service description
-    /// --> 12 = PTR    - a domain name pointer
-    /// --> 13 = HINFO  - host information
-    /// --> 14 = MINFO  - mailbox or mail list information
-    /// --> 15 = MX     - mail exchange
-    /// --> 16 = text   - text strings
-    pub query_type: u16,
-    /// Class fo query. Set to 0x01 for Internet.
-    pub query_class: u16,
-}
-
-impl fmt::Debug for DNSQuestion {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match writeln!(f, "querry_name: {}", labels_to_domains(&self.query_name)){
-            Err(e) => println!("{:?}", e),
-            _ => ()
-        };
-        match writeln!(f, "querry_type: {:?}", self.query_type){
-            Err(e) => println!("{:?}", e),
-            _ => ()
-        };
-        writeln!(f, "querry_class: {:?}", self.query_class)
-    }
-}
-
-pub struct DNSAnswer {
-
-    /// Name queried, in the same format as in DNSQuestion
-    pub query_name: Vec<u8>,
-    /// Same as in DNSQuestion
-    pub query_type: u16,
-    /// Same as in DNSQuestion
-    pub query_class: u16,
-    /// Time to store the record in cache. Can possibly be 0 or negative
-    pub record_ttl: i32,
-    /// Length of the rdata field
-    pub rdata_length: u16,
-    /// Actual data received from the answer. Specific content depends on the 
-    /// query type
-    pub rdata: Vec<u8>,
-}
-
-impl fmt::Debug for DNSAnswer {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match writeln!(f, "querry name: {}", labels_to_domains(&self.query_name)){
-            Err(e) => println!("{:?}", e),
-            _ => ()
-        };
-        match writeln!(f, "querry type: {}", self.query_type){
-            Err(e) => println!("{:?}", e),
-            _ => ()
-        };
-        match writeln!(f, "querry class: {}", self.query_class){
-            Err(e) => println!("{:?}", e),
-            _ => ()
-        };
-        match writeln!(f, "querry type: {}", self.query_type){
-            Err(e) => println!("{:?}", e),
-            _ => ()
-        };
-        match writeln!(f, "rdata length: {}", self.rdata_length){
-            Err(e) => println!("{:?}", e),
-            _ => ()
-        };
-        writeln!(f, "querry: {:?}", self.rdata)
     }
 }

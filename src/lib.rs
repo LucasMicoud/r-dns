@@ -1,36 +1,40 @@
 pub mod dns_util;
 
-use std::net::{Ipv4Addr, UdpSocket};
+use std::net::UdpSocket;
 use std::time::Duration;
-use dns_util::packet_factory::create_packet;
-use rand;
+use rand::{self, Rng};
 
-pub use crate::dns_util::dns_packet_structs::{ DNSHeader, DNSAnswer, DNSQuestion };
-pub use crate::dns_util::packet_factory::prepare_packet;
-pub use crate::dns_util::response_parser::parse_response;
+pub use crate::dns_util::dns_packet_structures::{
+    dns_header::DNSHeader,
+    dns_resource_record::DNSResourceRecord,
+    dns_question::DNSQuestion,
+    dns_packet::DNSPacket
+};
 
-pub fn init_socket(dns_server: Ipv4Addr) -> std::io::Result<UdpSocket> {
-    UdpSocket::bind((dns_server, 53))
+pub fn resolve_ipv4(domain: &str) -> (u8, u8, u8, u8) {
+    let response = make_dns_request(domain, "A", "1.1.1.1");
+    println!("{:?}", response);
+    (0,0,0,0)
 }
 
-pub fn dns_query(dns_server: Ipv4Addr, domain: &str) {
+pub fn make_dns_request(domain: &str, query_type: &str, dns_server: &str) -> DNSPacket {
+    let mut rng = rand::thread_rng();
     
-    let _rng = rand::thread_rng();
-    
-    let socket = UdpSocket::bind("0.0.0.0:34568")
+    let packet = DNSPacket::create_query_packet(vec![domain], query_type);
+    let socket = UdpSocket::bind(("0.0.0.0", rng.gen_range(1024..65535)))
         .expect("couldn't bind to address");
+
     let _ = socket.set_write_timeout(Some(Duration::new(5, 0)));
     let _ = socket.set_read_timeout(Some(Duration::new(5, 0)));
-    let packet = create_packet(vec![domain]);
-    let prepared_packet = prepare_packet(packet);
-    socket.send_to(&prepared_packet, (dns_server, 53)).expect("Could not send");
-    let mut buf: [u8; 1024] = [0; 1024];
+    
+    socket.send_to(&packet.prepare(), (dns_server, 53))
+        .expect("Could not send");
 
-    socket.recv_from(&mut buf).expect("Could not receive");
+    let mut buf: [u8; 1232] = [0; 1232];
 
-    let packet = parse_response(buf.to_vec());
-    println!("{:#?}", packet);
-    for answer in packet.answers { println!("{:#?}", answer)}
+    socket.recv_from(&mut buf)
+        .expect("Could not receive");
+    DNSPacket::parse_response(buf.to_vec())
 }
 
 #[cfg(test)]
@@ -39,6 +43,6 @@ mod tests {
 
     #[test]
     fn it_works() {
-        dns_query( Ipv4Addr::new(8,8,8,8), "google.com");
+        resolve_ipv4("google.com");
     }
 }
