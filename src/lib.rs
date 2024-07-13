@@ -34,6 +34,7 @@ pub fn make_dns_request(domain: &str, query_type: &str, dns_server: &str) -> DNS
 
     socket.recv_from(&mut buf)
         .expect("Could not receive");
+    println!("{:?}", buf);
     DNSPacket::parse_response(buf.to_vec())
 }
 

@@ -46,17 +46,21 @@ pub(super) fn labels_to_domains (labels: &Vec<u8>) -> String {
 
 pub(super) fn dns_decompression(response: &Vec<u8>, query_name_start: usize) -> (usize, Vec<u8>) {
     let mut query_name:Vec<u8> = Vec::new();
+
+    // End of labels 
     if response[query_name_start] == 0 {
         query_name.push(0);
         return (query_name_start, query_name)
     }
+    // Decompression needed
     else if response[query_name_start] >> 6 == 0b11 {
         query_name.extend(dns_decompression(
             response, 
-            u16::from_le_bytes([response[query_name_start + 1], response[query_name_start] & 0b0011_1111, ]) as usize
+            u16::from_le_bytes([response[query_name_start + 1], response[query_name_start] & 0b0011_1111]) as usize
         ).1);
         return (query_name_start+1, query_name)
     }
+    // 
     else {
         let label_length:usize = response[query_name_start] as usize;
         query_name.push(response[query_name_start]);
@@ -86,5 +90,43 @@ pub(super) fn parse_query_type(query_type: &str) -> u16 {
         "MX"      => 15,
         "TXT"     => 16,
         _         => 0,
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dns_decompression_0() {
+        let no_decompression:Vec<u8> = [15, 97, 108, 116, 101, 114, 45, 115, 111, 108, 117, 116, 105, 111, 110, 115, 2, 100, 101, 0].to_vec();
+        let decompressed = dns_decompression(&no_decompression, 0).1;
+        assert_eq!(no_decompression, decompressed);
+    }
+
+    #[test] 
+    fn test_dns_decompression_1() {
+        let simple_compression:Vec<u8> = [0, 0, 0, 0, 0, 3, 44, 45, 46, 0, 0, 0, 0, 0, 0, 3, 41, 42, 43, 0b1100_0000, 5].to_vec();
+        let (query_name_end, decompressed) = dns_decompression(&simple_compression, 15);
+        assert_eq!(decompressed, [3, 41, 42, 43, 3, 44, 45, 46, 0].to_vec());
+        assert_eq!(query_name_end, 20);
+    }
+
+    #[test]
+    fn test_dns_decompression_2() {
+        let google_answer: Vec<u8> = [29, 221, 129, 128, 0, 1, 0, 1, 0, 0, 0, 0, 6, 103, 111, 111, 103, 108, 101, 3, 99, 111, 109, 0, 0, 1, 0, 1, 192, 12, 0, 1, 0, 1, 0, 0, 1, 40, 0, 4, 142, 250, 203, 110, 0].to_vec();
+        let (query_name_end, decompressed) = dns_decompression(&google_answer, 28);
+        assert_eq!(decompressed, [6, 103, 111, 111, 103, 108, 101, 3, 99, 111, 109, 0].to_vec());
+        assert_eq!(query_name_end, 29);
+    }
+
+    #[test]
+    fn test_dns_decompression_3() {
+        let multiple_decompressions = [3, 41,42,43, 0,0,0,0,0,0, 3, 44, 45, 46, 0b1100_0000, 0, 0,0,0,0, 3, 47, 48, 49, 0b1100_0000, 10, 0,0,0,0, 0b1100_0000, 20].to_vec();
+        println!("{}", multiple_decompressions[20]);
+        let (query_name_end, decompressed) = dns_decompression(&multiple_decompressions, 30);
+        assert_eq!(decompressed, [3, 47, 48, 49, 3, 44, 45, 46, 3, 41, 42, 43, 0].to_vec());
+        assert_eq!(query_name_end, 31);
     }
 }
